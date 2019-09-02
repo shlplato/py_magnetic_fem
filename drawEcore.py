@@ -2,115 +2,100 @@ import os
 import numpy as np
 import femm
 import time
+import copy
 
 
-class EcoreGeometry:
-    def __init__(self, A, B, C, D, E, F):
-        self.A = A
-        self.B = B
-        self.C = C
-        self.D = D
-        self.E = E
-        self.F = F
-
-    def get_XY_coord(self):
-        # Outputs vectors [x,y] of the coordinate points that define the cores as polygons
-        # [x_E] = E core
-        # [x_I] = I core
-
-        # E-core
-        xy_vec = [[0, 0],
-                  [0, self.D],
-                  [(self.A - self.B) / 2, self.D],
-                  [(self.A - self.B) / 2, (self.D - self.E)],
-                  [(self.A - self.C) / 2, (self.D - self.E)],
-                  [(self.A - self.C) / 2, self.D],
-                  [(self.A + self.C) / 2, self.D],
-                  [(self.A + self.C) / 2, (self.D - self.E)],
-                  [(self.A + self.C) / 2, (self.D - self.E)],
-                  [(self.A + self.B) / 2, (self.D - self.E)],
-                  [(self.A + self.B) / 2, (self.D)],
-                  [self.A, self.D],
-                  [self.A, 0]]
-        x_vec = xy_vec[:, 0]
-        y_vec = xy_vec[:, 1]
-
-        return [x_vec, y_vec]
-
-    def draw_XY_geometry(self, headerFEM):
-        headerFEM.create_polygon(np.array([[0, 0],
-                                           [0, self.D],
-                                           [(self.A - self.B) / 2, self.D],
-                                           [(self.A - self.B) / 2, self.D - self.E],
-                                           [(self.A - self.C) / 2, self.D - self.E],
-                                           [(self.A - self.C) / 2, self.D],
-                                           [(self.A + self.C) / 2, self.D],
-                                           [(self.A + self.C) / 2, self.D - self.E],
-                                           [(self.A + self.C) / 2, self.D - self.E],
-                                           [(self.A + self.B) / 2, self.D - self.E],
-                                           [(self.A + self.B) / 2, self.D],
-                                           [self.A, self.D], [self.A, 0]]))
+# from shapely.geometry import Point, Polygon
 
 
-class Icore:
-    def __init__(self, A, F, t):
-        self.A = A
-        self.F = F
-        self.t = t
-
-    def get_XY_coord(self):
-        # Icore
-        xy_vec = [[0, (self.D + self.g)],
-                  [0, (self.D + self.g + self.It)],
-                  [(self.A), (self.D + self.g + self.It)],
-                  [(self.A), (self.D + self.g)]]
-
-        x_vec = xy_vec[:, 0]
-        y_vec = xy_vec[:, 1]
-
-    def draw_XY_geometry(self, material_name, g):
-        mi_drawpolygon(np.array([[0, self.D + g],
-                                 [0, self.D + g + self.It],
-                                 [self.A, self.D + g + self.It],
-                                 [self.A, self.D + g]]))
-        femm.mi_addblocklabel(self.A / 2, (self.D + g + self.It / 2))
-        femm.mi_selectlabel(self.A / 2, (self.D + g + self.It / 2))
-        femm.mi_setblockprop(material_name, 0, 0.5, 0, 0, 0, 0)
+# def inpolygon(xq, yq, xv, yv):
+#     shape = xq.shape
+#     xq = xq.reshape(-1)
+#     yq = yq.reshape(-1)
+#     xv = xv.reshape(-1)
+#     yv = yv.reshape(-1)
+#     q = [(xq[i], yq[i]) for i in range(xq.shape[0])]
+#     p = mpl.Path([(xv[i], yv[i]) for i in range(xv.shape[0])])
+#     in_pts = p.contains_points(q).reshape(shape)
+#     on_pts = None  # TODO:
+#     return in_pts, on_pts
 
 
-class PCB:
-    def __init__(self, hcu):
-        self.t_copper = hcu
-        self.d_layers = np.array([0.3, 0.3, 0.3, 0.3, 0.3]) * 1e-3
-        self.d_core = 0.2e-3
+# Finds a point 'X,Y' inside each polygon defined in 'blocks'
+def find_in_pts_in_block(block):
+    # labelXY = []
+    #
+    # # Test center of polygon
+    # xtest = (np.max(block.geometry.x) + np.min(block.geometry.x)) / 2
+    # ytest = (np.max(block.geometry.y) + np.min(block.geometry.y)) / 2
+    #
+    # [in_pts, on_pts] = inpolygon(xtest, ytest, block.geometry.x, block.geometry.y)
+    #
+    # if in_pts == 1 and on_pts == 0:
+    #     labelXY[0, :] = [xtest, ytest]
+    # else:
+    #     xtest = sum(block.geometry.x) / len(block.geometry.x)
+    #     ytest = sum(block.geometry.y) / len(block.geometry.y)
+    #     [in_pts, on_pts] = inpolygon(xtest, ytest, block.geometry.x, block.geometry.y)
+    #
+    #     if in_pts == 1 and on_pts == 0:
+    #         labelXY[0, :] = [xtest, ytest]
+    #     else:
+    #         # Test edges of polygon
+    #         for j in range(block.geometry.x):
+    #             if j == len(block.geometry.x):  # catch last case
+    #                 x1 = block.geometry.x(j)
+    #                 x2 = block.geometry.x(0)
+    #                 y1 = block.geometry.y(j)
+    #                 y2 = block.geometry.y(0)
+    #             else:
+    #                 x1 = block.geometry.x(j)
+    #                 x2 = block.geometry.x(j + 1)
+    #                 y1 = block.geometry.y(j)
+    #                 y2 = block.geometry.y(j + 1)
+    #
+    #             # normal of line
+    #             z = np.sqrt((y2 - y1) ^ 2 + (x2 - x1) ^ 2)
+    #             xnorm = (y1 - y2) / z
+    #             ynorm = (x2 - x1) / z
+    #             xtest = (x1 + x2) / 2 + xnorm * 0.1  # 0.1mm away from edge
+    #             ytest = (y1 + y2) / 2 + ynorm * 0.1
+    #
+    #             [in_pts, on_pts] = inpolygon(xtest, ytest, block.geometry.x, block.geometry.y)
+    #
+    #             if in_pts == 1 and on_pts == 0:
+    #                 labelXY[0, :] = [xtest, ytest]
+    #                 break
+    #             else:
+    #                 xtest = (x1 + x2) / 2 - xnorm * 0.1
+    #                 ytest = (y1 + y2) / 2 - ynorm * 0.1
+    #
+    #                 [in_pts, on_pts] = inpolygon(xtest, ytest, block.geometry.x, block.geometry.y)
+    #                 if in_pts == 1 and on_pts == 0:
+    #                     labelXY[0, :] = [xtest, ytest]
+    #                     break
+    #
+    #             if j == len(block.geometry.x):
+    #                 print('Error - block label not found')
+    pass
 
 
-class Primary:
-    def __init__(self):
-        d_core_p = 1e-3  # distance core to primary
-        cr_winding = 0.3e-3  # creepage between 2 traces
-        self.id = 1
-        self.name = 'HV'
-        self.layers = [1, 2, 3]
-        self.n_turn_layer = [1, 1, 1]
-        self.distance_turn = cr_winding
-        self.d_core_leg = d_core_p
-        self.parallel = 1
-        self.half = 0
+def mi_drawpolyline(p):
+    for k in range(0, len(p) - 1):
+        femm.mi_drawline(p[k, 0], p[k, 1], p[k + 1, 0], p[k + 1, 1])
 
 
-class Secondary:
-    def __init__(self):
-        d_core_s = 1e-3  # distance core to secondary
-        cr_winding = 0.3e-3  # creepage between 2 traces
-        self.id = 2
-        self.name = 'LV'
-        self.layers = [4, 5, 6]
-        self.n_turn_layer = [1, 1, 1]
-        self.distance_turn = cr_winding
-        self.d_core_leg = d_core_s
-        self.parallel = 1
-        self.half = 0
+def mi_drawrectangle(x1, y1, x2, y2):
+    femm.mi_drawline(x1, y1, x2, y1)
+    femm.mi_drawline(x2, y1, x2, y2)
+    femm.mi_drawline(x2, y2, x1, y2)
+    femm.mi_drawline(x1, y2, x1, y1)
+
+
+def mi_drawpolygon(p: np.array):
+    mi_drawpolyline(p)
+    n = len(p)
+    femm.mi_drawline(p[0, 0], p[0, 1], p[n - 1, 0], p[n - 1, 1])
 
 
 class Material:
@@ -118,12 +103,12 @@ class Material:
         # material for magnetics problems
         # mi_addmaterial(’matname’, mu_x, mu_y, Hc, J, Cduct, Lam_d, Phi_hmax, Lam_fill, LamType, Phi_hx, Phi_hy, nstr, dwire)
         # adds a new material with called ’matname’ with the material properties:
-        # – mu x Relative permeability in the x- or r-direction.
-        # – mu y Relative permeability in the y- or z-direction.
-        # – H c Permanent magnet coercivity in Amps/Meter.
-        # – J Applied source current density in Amps/mm2.
+        # – mu_x Relative permeability in the x- or r-direction.
+        # – mu_y Relative permeability in the y- or z-direction.
+        # – H_c Permanent magnet coercivity in Amps/Meter.
+        # – J Applied source current density in Amps/mm2. TODO: check if results are correct with Amps/m2
         # – Cduct Electrical conductivity of the material in MS/m.
-        # – Lam d Lamination thickness in millimeters.
+        # – Lam_d Lamination thickness in millimeters.
         # – Phi hmax Hysteresis lag angle in degrees, used for nonlinear BH curves.
         # – Lam fill Fraction of the volume occupied per lamination that is actually filled with
         # iron (Note that this parameter defaults to 1 in the femm preprocessor dialog box because,
@@ -143,7 +128,7 @@ class Material:
         self.name = None
         self.mu_x = None
         self.mu_y = None
-        self.perm_magn_coerc = None
+        self.H_c = None
         self.current_density = None
         self.sigma = None
         self.lam_thickness = None
@@ -195,7 +180,7 @@ class Material:
         self.name = materialname
         self.mu_x = mu_x
         self.mu_y = mu_y
-        self.perm_magn_coerc = Hc
+        self.H_c = Hc
         self.current_density = J
         self.sigma = Cduct
         self.lam_thickness = Lam_d
@@ -210,11 +195,259 @@ class Material:
         self.hdata = []
 
 
+class Block:
+    name = None
+    geometry = None
+    material = None
+    excitation = None
+    label = None
+    group = None  # A member of group number group
+
+    # TODO: how to get private -> set not allowed
+    geometry_xy = None
+
+    def __init__(self, name):
+        self.name = 'foo'
+        self.geometry = {}
+        self.material = Material()
+        self.excitation = None  # MagneticCircuit(circuit_name=None, current=None, circuittype=None)
+        self.label = Label(None, None)
+
+    # @geometry_xy.getter
+    # def geometry_xy(self):
+    #     pass
+
+    def set_label_position(self):
+        # [self.label.x_coord, self.label.y_coord] = find_in_pts_in_block(block=block)
+        pass
+
+    def xmirror(self):
+        self.geometry_xy[:, 2] = -1 * self.geometry_xy[:, 2]
+        self.label.y_coord = -self.label.y_coord
+
+    def move(self, x_offset, y_offset):
+        self.geometry_xy = self.geometry_xy + [x_offset, y_offset]
+
+
+class Ecore(Block):
+    def __init__(self, name: str, A: float, B: float, C: float, D: float, E: float, F: float, ferrite: Material):
+        super().__init__(name=name)
+        self.geometry['A'] = A
+        self.geometry['B'] = B
+        self.geometry['C'] = C
+        self.geometry['D'] = D
+        self.geometry['E'] = E
+        self.geometry['F'] = F
+        self.geometry_xy = self.create_geometry_polyline()
+        self.material = Ferroxcube_3C95()
+        self.excitation = None  # no current in core
+        self.label = Label(self.geometry['A'] / 2, self.geometry['D'] / 2)
+
+    def create_geometry_polyline(self):
+        # E-core
+        xy_polyline = np.array([[0, 0],
+                                [0, self.geometry['D']],
+                                [(self.geometry['A'] - self.geometry['B']) / 2, self.geometry['D']],
+                                [(self.geometry['A'] - self.geometry['B']) / 2,
+                                 (self.geometry['D'] - self.geometry['E'])],
+                                [(self.geometry['A'] - self.geometry['C']) / 2,
+                                 (self.geometry['D'] - self.geometry['E'])],
+                                [(self.geometry['A'] - self.geometry['C']) / 2, self.geometry['D']],
+                                [(self.geometry['A'] + self.geometry['C']) / 2, self.geometry['D']],
+                                [(self.geometry['A'] + self.geometry['C']) / 2,
+                                 (self.geometry['D'] - self.geometry['E'])],
+                                [(self.geometry['A'] + self.geometry['C']) / 2,
+                                 (self.geometry['D'] - self.geometry['E'])],
+                                [(self.geometry['A'] + self.geometry['B']) / 2,
+                                 (self.geometry['D'] - self.geometry['E'])],
+                                [(self.geometry['A'] + self.geometry['B']) / 2, self.geometry['D']],
+                                [self.geometry['A'], self.geometry['D']],
+                                [self.geometry['A'], 0]])
+
+        return xy_polyline
+
+    def reduce_middle_leg_length(self, distance):
+        xy_polyline = np.array([[0, 0],
+                                [0, self.geometry['D']],
+                                [(self.geometry['A'] - self.geometry['B']) / 2, self.geometry['D']],
+                                [(self.geometry['A'] - self.geometry['B']) / 2,
+                                 (self.geometry['D'] - self.geometry['E'])],
+                                [(self.geometry['A'] - self.geometry['C']) / 2,
+                                 (self.geometry['D'] - self.geometry['E'])],
+                                [(self.geometry['A'] - self.geometry['C']) / 2, self.geometry['D'] - distance],
+                                [(self.geometry['A'] + self.geometry['C']) / 2, self.geometry['D'] - distance],
+                                [(self.geometry['A'] + self.geometry['C']) / 2,
+                                 (self.geometry['D'] - self.geometry['E'])],
+                                [(self.geometry['A'] + self.geometry['C']) / 2,
+                                 (self.geometry['D'] - self.geometry['E'])],
+                                [(self.geometry['A'] + self.geometry['B']) / 2,
+                                 (self.geometry['D'] - self.geometry['E'])],
+                                [(self.geometry['A'] + self.geometry['B']) / 2, self.geometry['D']],
+                                [self.geometry['A'], self.geometry['D']],
+                                [self.geometry['A'], 0]])
+        # x_vec = xy_polyline[:, 0]
+        # y_vec = xy_polyline[:, 1]
+
+        return xy_polyline
+
+    def draw_geometry_xy(self, headerFEM):
+        headerFEM.create_polygon(self.geometry_xy)
+
+    def draw_geometry_xyz(self, headerFEM):
+        # TODO: take from maxwell 3D toolbox
+        pass
+
+
+class Icore(Block):
+    def __init__(self, name: str, A: float, F: float, It: float, ferrite: Material):
+        super().__init__(name=name)
+        self.geometry['A'] = A
+        self.geometry['F'] = F
+        self.geometry['It'] = It
+        self.geometry_xy = self.create_geometry_polyline()
+        self.material =
+        self.excitation = None  # no current in core
+        self.label = Label(self.geometry['A'] / 2, self.geometry['It'] / 2)
+
+    def create_geometry_polyline(self):
+        # Icore
+        xy_polyline = np.array([[0, 0],
+                                [0, self.geometry['It']],
+                                [self.geometry['A'], (self.geometry['It'])],
+                                [self.geometry['A'], 0]])
+
+        return xy_polyline
+
+    def draw_geometry_xy(self, headerFEM):
+        headerFEM.create_polygon(self.geometry_xy)
+
+class Winding():
+    def __init__(self):
+        self.block_list = []
+
+    def generate_conductor_blocks_list(self):
+        pass
+
+class PCBwinding(Winding):
+    def __init__(self, hcu):
+        super().__init__(name=name)
+        self.copper_stack = hcu
+        self.isolation_stack = np.array([0.3, 0.3, 0.3, 0.3, 0.3]) * 1e-3
+        self.prim = Primary()
+        self.sec = Secondary()
+        self.block_list = self.generate_conductor_blocks_list(self)
+
+    def generate_conductor_blocks_list(self):
+        drawEwinding
+
+
+    def drawEwinding(Core, PCB, winding, material_name):
+        # This funtion draws the planar windings in FEMM
+        femm.mi_getmaterial(material_name)
+
+        id = winding.id
+        layers = winding.layers
+        d_core_leg = winding.d_core_leg
+        nturn_layer = winding.n_turn_layer
+        distance_turn = winding.distance_turn
+        circ = winding.name
+
+        d_core_pcb = PCB.d_core
+        d_layers = np.hstack((0, PCB.d_layers))
+        t_copper = PCB.t_copper
+
+        c = Core
+
+        h = 1
+        for i in range(len(layers)):
+            turn_size = (c.B - c.C - 4 * d_core_leg - 2 * (np.ceil(nturn_layer[i]) - 1) * distance_turn) / 2 / \
+                        nturn_layer[i]
+            # Distance between each turn
+            for j in range(int(np.ceil(nturn_layer[i]))):
+                str_pos = str(h) + circ + '+'
+                str_neg = str(h) + circ + '-'
+
+                femm.mi_addcircprop(str_pos, 0, 1)
+                femm.mi_addcircprop(str_neg, 0, 1)
+
+                x1 = 0
+                y1 = 0
+
+                if j == 0:
+                    x1 = ((c.A - c.B) / 2) + d_core_leg
+                else:
+                    x1 = x1 + distance_turn + turn_size
+
+                if layers[i] == 0:
+                    y1 = (c.D - c.E) + d_core_pcb
+                else:
+                    y1 = (c.D - c.E) + d_core_pcb + np.sum(d_layers[1:layers[i]]) + np.sum(
+                        t_copper[1: layers[i]])  # *(layers[i]-1))
+
+                    x2 = x1 + turn_size * (1 - 0.5 * (j > nturn_layer[i]))
+                    y2 = y1 + t_copper[layers[i] - 1]  # +t_copper(len(layers))
+                    femm.mi_drawrectangle(x1, y1, x2, y2)
+                    femm.mi_addblocklabel((x2 - x1) / 2 + x1, (y2 - y1) / 2 + y1)
+                    femm.mi_selectlabel((x2 - x1) / 2 + x1, (y2 - y1) / 2 + y1)
+                    femm.mi_setblockprop(material_name, 0, 0.05, str_pos, 0, id, 0)
+                    femm.mi_selectgroup(id)
+                    femm.mi_mirror(c.A / 2, 0, c.A / 2, c.D)
+                    femm.mi_selectlabel(c.A - ((x2 - x1) / 2 + x1), (y2 - y1) / 2 + y1)
+                    femm.mi_setblockprop(material_name, 0, 0.05, str_neg, 0, id, 0)
+                    femm.mi_selectrectangle(x1, y1, x2, y2)
+                    femm.mi_mirror(c.A / 2, 0, c.A / 2, c.D)
+                    h = h + 1
+
+class Primary:
+    def __init__(self):
+        d_core_p = 1e-3  # distance core to primary
+        cr_winding = 0.3e-3  # creepage between 2 traces
+        self.id = 1
+        self.name = 'HV'
+        self.layers = [1, 2, 3]
+        self.n_turn_layer = [1, 1, 1]
+        self.distance_turn = cr_winding
+        self.d_core_leg = d_core_p
+        self.parallel = 1
+        self.half = 0
+
+
+class Secondary:
+    def __init__(self):
+        d_core_s = 1e-3  # distance core to secondary
+        cr_winding = 0.3e-3  # creepage between 2 traces
+        self.id = 2
+        self.name = 'LV'
+        self.layers = [4, 5, 6]
+        self.n_turn_layer = [1, 1, 1]
+        self.distance_turn = cr_winding
+        self.d_core_leg = d_core_s
+        self.parallel = 1
+        self.half = 0
+
+
 class Air(Material):
     def __init__(self):
-        self.name = 'Air'
+        super().__init__()
+        self.name = 'air'
         self.mu_x = 1
         self.mu_y = 1
+        self.perm_magn_coerc = 0
+        self.current_density = 0
+        self.sigma = 0
+        self.lam_thickness = 0
+        self.hyst_lag_angle = 0
+        self.fill_factor_lamination = 1
+        self.lamination_type = 0
+        self.hyst_lag_x = 0
+        self.hyst_lag_y = 0
+
+class Ferrite(Material):
+    def __init__(self):
+        super().__init__()
+        self.name = 'ferrite'
+        self.mu_x = 3000
+        self.mu_y = 3000
         self.perm_magn_coerc = 0
         self.current_density = 0
         self.sigma = 0
@@ -301,65 +534,13 @@ class MagneticCircuit:
 
 
 class Label:
-    def __init__(self):
-        self.name = None
-        self.xpos = None
-        self.ypos = None
+    name = None
+    x_coord = None
+    y_coord = None
 
-
-class Block:
-    def __init__(self):
-        self.name = 'foo'
-        self.geometry = None
-        self.material = Material()
-        self.excitation = MagneticCircuit()
-        self.label = Label()
-
-    def set_label(self, name: str):
-        self.label.xpos = min(self.geometry.x) + self.geometry.dx
-        self.label.ypos = min(self.geometry.y) + self.geometry.dy
-
-    def add_label_femm(self):
-        femm.mi_addblocklabel(self.label.xpos, self.label.ypos)
-
-    def select_label_femm(self):
-        femm.mi_selectlabel(self.label.xpos, self.label.xpos)
-
-    def add_material_femm(self, m: Material):
-        if self.problem.solver == 'magnetic':
-            femm.mi_addmaterial(m.name,
-                                m.mu_x,
-                                m.mu_y,
-                                m.perm_magn_coerc,
-                                m.current_density,
-                                m.sigma,
-                                m.lam_thickness,
-                                m.hyst_lag_angle,
-                                m.fill_factor_lamination,
-                                m.lamination_type,
-                                m.hyst_lag_x,
-                                m.hyst_lag_y,
-                                m.nstrand,
-                                m.dstrand)
-
-    def add_non_linear_material_femm(self, m: Material):
-        if self.problem.solver == 'magnetic':
-            femm.mi_addmaterial(m.name,
-                                m.mu_x,
-                                m.mu_y,
-                                m.perm_magn_coerc,
-                                m.current_density,
-                                m.sigma,
-                                m.lam_thickness,
-                                m.hyst_lag_angle,
-                                m.fill_factor_lamination,
-                                m.lamination_type,
-                                m.hyst_lag_x,
-                                m.hyst_lag_y,
-                                m.nstrand,
-                                m.dstrand)
-            for item in range(0, len(m.bdata)):
-                femm.mi_addbhpoint(m.name, m.bdata[item], m.hdata[item])
+    def __init__(self, x_coord, y_coord):
+        self.x_coord = y_coord
+        self.y_coord = y_coord
 
 
 class FEMMMagneticProblem:
@@ -382,15 +563,24 @@ class FEMMMagneticProblem:
         self.planar_problem_depth = 0
         self.acsolver = 0  # successive approximations
 
+
 class FEMM:
+    filename = None
+    problem = None
+    model = None
+
     def __init__(self):
         self.filename = "pippo"
         self.problem = FEMMMagneticProblem()
-        self.blocks_list = None
 
-    def open(self):
+    @staticmethod
+    def open():
         # The package must be initialized with the openfemm command.
         femm.openfemm()
+
+    @staticmethod
+    def close():
+        femm.closefemm()
 
     def new_magnetic_planar_problem(self):
         # We need to create a new Magnetostatics document to work on.
@@ -413,9 +603,29 @@ class FEMM:
                         self.problem.planar_problem_depth, self.problem.acsolver)
 
     def set_open_boundary_condition(self):
+        # addBoundariesAir(blocks, r_boundary)
         if self.problem.solver == 'magnetic':
-            # Define an "open" boundary condition using the built-in function:
-            femm.mi_makeABC()
+            # TODO for general geometry
+            pass
+            # # Define an "open" boundary condition using the built-in function:
+            # ## mi makeABC(n,R,x,y,bc)
+            # #      n = number of shells (between 1 and 10)
+            # #      R = the radius of solution domain
+            # #      (x,y) = center of the solution domain
+            # #      bc = 0 for a Dirichlet outer edge or 1 for a Neumann outer edge.
+            #
+            #
+            # # label air
+            # femm.mi_clearselected();
+            # femm.mi_getmaterial('Air')
+            # femm.mi_addblocklabel(min_x - widthX * 0.1, min_y - heightY * 0.1);
+            # femm.mi_selectlabel(min_x - widthX * 0.1, min_y - heightY * 0.1);
+            # femm.mi_setblockprop('Air', 1, 0, 0, 0, air_id, 0) # 1 = Automesh
+            # femm.mi_attachdefault()
+            #
+            # # set boundary
+            # femm.mi_makeABC(7, r_boundary, mid_x, mid_y, 0)
+            # femm.mi_clearselected()
 
     def add_block_label(self, x, y):
         if self.problem.solver == 'magnetic':
@@ -429,12 +639,15 @@ class FEMM:
             # and 1 for a series-connected circuit.
             femm.mi_addcircprop(Block.circuit_name, Block.current, Block.circuittype)
 
-    def set_block_material(self, block: Block):
+    def set_block_proprities(self, block: Block):
+        # Use either automesh or minmesh
+        automesh = 1
+        minmesh = 0.5  # minimum mesh size in mm (No effect if automesh = 1)
         if self.problem.solver == 'magnetic':
             if block.material == 'linear':
-                femm.mi_selectlabel(5, 0)
-                femm.mi_setblockprop('Iron', 0, 1, '<None>', 0, 0, 0)
-                femm.mi_clearselected()
+                femm.mi_selectlabel(block.label.x_coord, block.label.y_coord)
+                self.add_material(material=block.material)
+                femm.mi_setblockprop(block.material.name, automesh, minmesh, 0, 0, block.group, 0);
 
     def zoom_natural(self):
         if self.problem.solver == 'magnetic':
@@ -452,35 +665,39 @@ class FEMM:
             femm.mi_saveas(filename)
 
     def get_magnetic_flux_xy(self, x, y):
-        if self.problem.solver == 'magnetic':
-            # If we were interested in the flux density at specific positions,
-            # we could inquire at specific points directly:
-            flux = femm.mo_getb(x, y)
-            return flux[1]
+        # if self.problem.solver == 'magnetic':
+        #     # If we were interested in the flux density at specific positions,
+        #     # we could inquire at specific points directly:
+        #     flux = femm.mo_getb(x, y)
+        #     return flux[1]
+        pass
 
     def get_electrical_param(self, circuit: MagneticCircuit):
-        if self.problem.solver == 'magnetic':
-            # The program will report the terminal properties of the circuit:
-            # current, voltage, and flux linkage
-            [current, voltage, phi] = femm.mo_getcircuitproperties(circuit.name)
-            return [current, voltage, phi]
+        # if self.problem.solver == 'magnetic':
+        #     # The program will report the terminal properties of the circuit:
+        #     # current, voltage, and flux linkage
+        #     [current, voltage, phi] = femm.mo_getcircuitproperties(circuit.name)
+        #     return [current, voltage, phi]
+        pass
 
     def get_inductance(self, circuit: MagneticCircuit):
-        if self.problem.solver == 'magnetic':
-            # If we were interested in inductance, it could be obtained by
-            # dividing flux linkage by current
-            [current, voltage, phi] = femm.mo_getcircuitproperties(circuit.name)
-            inductance = phi / current
-            return inductance
+        # if self.problem.solver == 'magnetic':
+        #     # If we were interested in inductance, it could be obtained by
+        #     # dividing flux linkage by current
+        #     [current, voltage, phi] = femm.mo_getcircuitproperties(circuit.name)
+        #     inductance = phi / current
+        #     return inductance
+        pass
 
     def get_flux_along_path(self, x_path: list, y_path: list):
-        if self.problem.solver == 'magnetic':
-            # Or we could, for example, plot the results along a path
-            flux_path = []
-            for x, y in zip(x_path, y_path):
-                flux = femm.mo_getb(x, y)
-                flux_path.append(flux[1])
-            return flux_path
+        # if self.problem.solver == 'magnetic':
+        #     # Or we could, for example, plot the results along a path
+        #     flux_path = []
+        #     for x, y in zip(x_path, y_path):
+        #         flux = femm.mo_getb(x, y)
+        #         flux_path.append(flux[1])
+        #     return flux_path
+        pass
 
     def solve(self):
         if self.problem.solver == 'magnetic':
@@ -488,120 +705,92 @@ class FEMM:
             femm.mi_analyze()
             femm.mi_loadsolution()
 
-    def close(self):
-        femm.closefemm()
+    # def draw_block_list(self):
+    #     # Use either automesh or minmesh
+    #     automesh = 1
+    #     minmesh = 0.5  # minimum mesh size in mm(No effect if automesh = 1)
+    #
+    #     for item in self.blocks_list:
+    #         item.geometry.draw_femm()
+    #         item.set_material_femm(item.material)
+    #         femm.mi_setblockprop(item.material.name, automesh, minmesh, 0, 0, item, 0)
 
-    def draw_blocks(self):
-        # Use either automesh or minmesh
-        automesh = 1
-        minmesh = 0.5  # minimum mesh size in mm(No effect if automesh = 1)
+    def draw_polyline(self, polyline: np.array):
+        mi_drawpolygon(polyline)
 
-        for item in self.blocks_list:
-            item.geometry.draw_femm()
-            item.set_material_femm(item.material)
-            femm.mi_setblockprop(item.material.name, automesh, minmesh, 0, 0, item, 0)
+    def add_label(self, block: Block):
+        femm.mi_addblocklabel(block.label.xpos, block.label.ypos)
 
+    def select_label(self, block: Block):
+        femm.mi_selectlabel(block.label.xpos, block.label.xpos)
 
-    def CreatePolyline(self, polyline_array: np.array):
-        mi_drawpolygon(polyline_array)
+    def add_material(self, material: Material):
+        if self.problem.solver == 'magnetic':
+            try:
+                femm.mi_addmaterial(material.name,
+                                    material.mu_x,
+                                    material.mu_y,
+                                    material.H_c,
+                                    material.current_density,
+                                    material.sigma,
+                                    material.lam_thickness,
+                                    material.hyst_lag_angle,
+                                    material.fill_factor_lamination,
+                                    material.lamination_type,
+                                    material.hyst_lag_x,
+                                    material.hyst_lag_y,
+                                    material.nstrand,
+                                    material.dstrand)
+            except AttributeError:
+                pass
 
+    def add_non_linear_material(self, material: Material):
+        if self.problem.solver == 'magnetic':
+            try:
+                femm.mi_addmaterial(material.name,
+                                    material.mu_x,
+                                    material.mu_y,
+                                    material.perm_magn_coerc,
+                                    material.current_density,
+                                    material.sigma,
+                                    material.lam_thickness,
+                                    material.hyst_lag_angle,
+                                    material.fill_factor_lamination,
+                                    material.lamination_type,
+                                    material.hyst_lag_x,
+                                    material.hyst_lag_y,
+                                    material.nstrand,
+                                    material.dstrand)
+                for item in range(0, len(material.bdata)):
+                    femm.mi_addbhpoint(material.name, material.bdata[item], material.hdata[item])
+            except AttributeError:
+                pass
 
-def create_Ecore(core: EcoreGeometry, material: Material, gap):
-    mi_drawpolygon(np.array([[0, 0], [0, core.D],
-                             [(core.A - core.B) / 2, core.D],
-                             [(core.A - core.B) / 2, core.D - core.E],
-                             [(core.A - core.C) / 2, core.D - core.E],
-                             [(core.A - core.C) / 2, core.D],
-                             [(core.A + core.C) / 2, core.D],
-                             [(core.A + core.C) / 2, core.D - core.E],
-                             [(core.A + core.C) / 2, core.D - core.E],
-                             [(core.A + core.B) / 2, core.D - core.E],
-                             [(core.A + core.B) / 2, core.D],
-                             [core.A, core.D], [core.A, 0]]))
-    femm.mi_addblocklabel(core.A / 2, core.D / 2)
-    femm.mi_selectlabel(core.A / 2, core.D / 2)
-    femm.mi_setblockprop(material.name, 0, 0.5, 0, 0, 0, 0)
+    def draw_block(self, block):
+        self.add_material(material=block.material)
+        self.draw_polyline(polyline=block.geometry_xy)
+        self.add_block_label(block.label.x_coord, block.label.y_coord)
+        self.set_block_proprities(block=block)
 
+    # def createEcore(core, material_name, gap):
+    #     c = core
+    #     mi_drawpolygon(np.array([[0, 0], [0, c.D], [(c.A - c.B) / 2, c.D], [(c.A - c.B) / 2, c.D - c.E],
+    #                              [(c.A - c.C) / 2, c.D - c.E], [(c.A - c.C) / 2, c.D], [(c.A + c.C) / 2, c.D],
+    #                              [(c.A + c.C) / 2, c.D - c.E], [(c.A + c.C) / 2, c.D - c.E],
+    #                              [(c.A + c.B) / 2, c.D - c.E], [(c.A + c.B) / 2, c.D],
+    #                              [c.A, c.D], [c.A, 0]]))
+    #     femm.mi_addblocklabel(c.A / 2, c.D / 2)
+    #     femm.mi_selectlabel(c.A / 2, c.D / 2)
+    #     femm.mi_setblockprop(material_name, 0, 0.5, 0, 0, 0, 0)
 
-def drawEEcoreGapEachLeg(core: EcoreGeometry, material: Material, gap):
-    # define the mu_x and mu_y
-    femm.mi_addmaterial(material.name, material.mu_x, material.mu_y)
-    femm.mi_modifymaterial(material.name, 5, material.sigma)
-    # here we design the 2D of the E core, see PlanarFEMM_diagram.png for more
-    create_Ecore(core, materia, gap / 2)
-    femm.mi_selectgroup(0)
-    # in this case we suppose the gap is on all of the core legs
-    femm.mi_mirror(0, core.D, core.A, core.D)
+    # def drawRectWithCenterWidthHeight(xc, yc, w, h, material: Material):
+    #     pts = np.array(
+    #         [[xc - w / 2, yc - h / 2], [xc - w / 2, yc + h / 2], [xc + w / 2, yc + h / 2], [xc + w / 2, yc - h / 2]])
+    #     mi_drawpolygon(pts)
+    #     femm.mi_addblocklabel(xc, yc)
+    #     femm.mi_selectlabel(xc, yc)
+    #     femm.mi_setblockprop(material.name, 0, 0.5, 0, 0, 0, 0)
 
-
-def drawEIcoreGapEachLeg(core: EcoreGeometry, material: Material, t, gap):
-    # define the mu_x and mu_y
-    femm.mi_addmaterial(material.name, material.mu_x, material.mu_y)
-    # store the ferrite conductivity
-    femm.mi_modifymaterial(material.name, 5, material.sigma)
-    # draw Ecore with internal leg shortened by defined gap
-    create_Ecore(core, material, 0)
-    create_Icore(core, t, material, gap / 2)
-
-
-def drawEEcoreGapMidLeg(Core, material, gap):
-    femm.mi_addmaterial(material.name, material.mu_x, material.mu_y)
-    femm.mi_modifymaterial(material.name, 5, material.sigma)
-    # here we design the 2D of the E core, see PlanarFEMM_diagram.png for more
-    create_Ecore(Core, material, gap / 2)
-    femm.mi_addblocklabel(Core.A / 2, Core.D / 2)
-    femm.mi_selectlabel(Core.A / 2, Core.D / 2)
-    # assign the material to the label just designed
-    femm.mi_setblockprop(material.name, 0, 0.5, 0, 0, 0, 0)
-    femm.mi_selectgroup(0)
-    # in this case we suppose the gap is on all of the core legs
-    femm.mi_mirror(0, Core.D, Core.A, Core.D)
-
-
-# def create_Ecore(core, material_name, gap):
-#     c = core
-#     mi_drawpolygon(np.array([[0, 0], [0, c.D], [(c.A - c.B) / 2, c.D], [(c.A - c.B) / 2, c.D - c.E],
-#                              [(c.A - c.C) / 2, c.D - c.E], [(c.A - c.C) / 2, c.D], [(c.A + c.C) / 2, c.D],
-#                              [(c.A + c.C) / 2, c.D - c.E], [(c.A + c.C) / 2, c.D - c.E],
-#                              [(c.A + c.B) / 2, c.D - c.E], [(c.A + c.B) / 2, c.D],
-#                              [c.A, c.D], [c.A, 0]]))
-#     femm.mi_addblocklabel(c.A / 2, c.D / 2)
-#     femm.mi_selectlabel(c.A / 2, c.D / 2)
-#     femm.mi_setblockprop(material_name, 0, 0.5, 0, 0, 0, 0)
-
-
-def create_Icore(core, t, material: Material, g):
-    c = core
-    pts = np.array([[0, c.D + g], [0, c.D + g + t], [c.A, c.D + g + t], [c.A, c.D + g]])
-    mi_drawpolygon(pts)
-    femm.mi_addblocklabel(c.A / 2, (c.D + g + t / 2))
-    femm.mi_selectlabel(c.A / 2, (c.D + g + t / 2))
-    femm.mi_setblockprop(material.name, 0, 0.5, 0, 0, 0, 0)
-
-
-def drawRectWithCenterWidthHeight(xc, yc, w, h, material: Material):
-    pts = np.array(
-        [[xc - w / 2, yc - h / 2], [xc - w / 2, yc + h / 2], [xc + w / 2, yc + h / 2], [xc + w / 2, yc - h / 2]])
-    mi_drawpolygon(pts)
-    femm.mi_addblocklabel(xc, yc)
-    femm.mi_selectlabel(xc, yc)
-    femm.mi_setblockprop(material.name, 0, 0.5, 0, 0, 0, 0)
-
-
-def create_EEcore(Core, material: Material, g):
-    femm.mi_addmaterial(material.name, material.mu_x, material.mu_y)
-    femm.mi_modifymaterial(material.name, 5, material.sigma)
-    create_Ecore(Core, material, 0)
-    femm.mi_selectgroup(0)
-    # in this case we suppose the gap is on all of the core legs
-    femm.mi_mirror(0, Core.D + g / 2, Core.A, Core.D + g / 2)
-
-
-def create_EIcore(Core, t, material: Material, g):
-    femm.mi_addmaterial(material.name, material.mu_x, material.mu_y)
-    femm.mi_modifymaterial(material.name, 5, material.sigma)
-    create_Ecore(Core, material)
-    create_Icore(Core, t, material, g)
 
 def set_circuit(circ, layers, nturn_layer, I):
     h = 1
@@ -627,6 +816,34 @@ def set_circuit_half(circ, layers, nturn_layer, I):
         femm.mi_modifycircprop(str_ext_neg, 1, I / 2)
         h = h + 1
 
+
+def drawEwindingHalfTurn(Core, PCB, winding, material_name):
+    # This funtion draws the half turn planar windings in FEMM
+    pass
+
+def createEEcoreWith3Gaps(core: Ecore, gap):
+    EblockBot = copy.deepcopy(core)
+    EblockTop = copy.deepcopy(core)
+    EblockTop.xmirror()
+    EblockTop.move(x_offset=0, y_offset=core.geometry['D'] + gap)
+    return EblockBot, EblockTop
+
+
+def createEIcoreWith3Gaps(ecore: Ecore, plt_core: Icore, gap):
+    Eblock = copy.deepcopy(ecore)
+    Iblock = copy.deepcopy(plt_core)
+    Iblock.move(x_offset=0, y_offset=Eblock.geometry['D'] + gap)
+    return Eblock, Iblock
+
+
+def drawEEcoreGapMidLeg(core: Ecore, gap):
+    EblockBot = copy.deepcopy(core)
+    EblockTop = copy.deepcopy(core)
+    EblockBot.reduce_middle_leg_length(gap / 2)
+    EblockTop.reduce_middle_leg_length(gap / 2)
+    EblockTop.xmirror()
+    EblockTop.move(x_offset=0, y_offset=core.geometry['D'])
+    return EblockBot, EblockTop
 
 
 def test_open(Core, winding, id, PCB, g):
@@ -802,9 +1019,6 @@ def test_saturation(Core, winding, id, PCB, I, g):
             set_circuit(winding[i].name, winding[i].layers, winding[i].n_turn_layer, 0)
 
 
-
-
-
 def test_short(Core, winding, id, f, PCB, g):
     femm.mi_getmaterial('Air')
 
@@ -877,354 +1091,178 @@ def test_short(Core, winding, id, f, PCB, g):
     return [Rac, L_leak]
 
 
-def test_short_CT(Core, winding, id, f, PCB, g):
-    femm.mi_getmaterial('Air')
+# def test_short_CT(Core, winding, id, f, PCB, g):
+#     femm.mi_getmaterial('Air')
+#
+#     if g == 0:
+#         femm.mi_addblocklabel((Core.B - Core.C) / 2, PCB.d_core / 2 + Core.D - Core.E)
+#         femm.mi_selectlabel((Core.B - Core.C) / 2, PCB.d_core / 2 + Core.D - Core.E)
+#         femm.mi_setblockprop('Air', 1, 0, 0, 0, 99, 0)
+#
+#         femm.mi_addblocklabel(Core.A / 2 + (Core.B - Core.C) / 2, PCB.d_core / 2 + Core.D - Core.E)
+#         femm.mi_selectlabel(Core.A / 2 + (Core.B - Core.C) / 2, PCB.d_core / 2 + Core.D - Core.E)
+#         femm.mi_setblockprop('Air', 1, 0, 0, 0, 99, 0)
+#
+#     femm.mi_addblocklabel(Core.A * np.cos(np.pi / 3), Core.A * np.sin(np.pi / 3))
+#     femm.mi_selectlabel(Core.A * np.cos(np.pi / 3), Core.A * np.sin(np.pi / 3))
+#     femm.mi_setblockprop('Air', 1, 0, 0, 0, 99, 0)
+#
+#     femm.mi_probdef(f, 'meters', 'planar', 1e-8, Core.F)
+#     femm.mi_makeABC(7, 2 * Core.A, Core.A / 2, Core.D / 2, 0)
+#
+#     femm.mi_saveas(''.join([os.getcwd(), '\\Output\\FEM\\test_short.fem']))
+#     femm.mi_createmesh()
+#
+#     n = []
+#     Rac = []
+#
+#     for i in range(len(winding)):
+#         n[i] = np.sum(winding[id - 1].n_turn_layer) / winding[id - 1].parallel / np.sum(winding[i].n_turn_layer) * \
+#                winding[i].parallel
+#         if i == id:
+#             if winding[i].half:
+#                 set_circuit_half(winding[i].name, winding[i].layers, winding[i].n_turn_layer, 1 / winding[i].parallel)
+#             else:
+#                 set_circuit(winding[i].name, winding[i].layers, winding[i].n_turn_layer, 1 / winding[i].parallel)
+#         else:
+#             if winding[i].half:
+#                 set_circuit_half(winding[i].name, winding[i].layers, winding[i].n_turn_layer,
+#                                  -n[i] / winding[i].parallel)
+#             else:
+#                 set_circuit(winding[i].name, winding[i].layers, winding[i].n_turn_layer, -n[i] / winding[i].parallel)
+#
+#     femm.mi_analyze(1)
+#     femm.femm.mi_loadsolution()
+#     for i in range(len(winding)):
+#         if i == id:
+#             femm.mo_groupselectblock(i)
+#             Rac[i] = 2 * np.real(femm.mo_blockintegral(4))
+#             femm.mo_clearblock()
+#         else:
+#             femm.mo_groupselectblock(i)
+#             femm.mo_groupselectblock(i + 1)
+#             Rac[i] = 2 * np.real(femm.mo_blockintegral(4)) / n[i] ^ 2
+#             femm.mo_clearblock()
+#
+#     femm.mo_groupselectblock(0)
+#     femm.mo_groupselectblock(99)
+#     L_leak = 4 * np.real(femm.mo_blockintegral(2))
+#     femm.mo_clearblock()
+#
+#     femm.mo_resize(800, 800)
+#     femm.mo_zoomnatural()
+#     femm.mo_zoomin()
+#     femm.mo_savebitmap(''.join([os.getcwd(), '\\img\\test_short.bmp']))
+#     femm.mo_savemetafile(''.join([os.getcwd(), '\\img\\test_short.eps']))
+#     # reset currents to 0
+#     for i in range(len(winding)):
+#         if winding[i].half:
+#             set_circuit_half(winding[i].name, winding[i].layers, winding[i].n_turn_layer, 0)
+#         else:
+#             set_circuit(winding[i].name, winding[i].layers, winding[i].n_turn_layer, 0)
+#     return [Rac, L_leak]
 
-    if g == 0:
-        femm.mi_addblocklabel((Core.B - Core.C) / 2, PCB.d_core / 2 + Core.D - Core.E)
-        femm.mi_selectlabel((Core.B - Core.C) / 2, PCB.d_core / 2 + Core.D - Core.E)
-        femm.mi_setblockprop('Air', 1, 0, 0, 0, 99, 0)
+class Transformer:
+    def __init__(self):
+        ## electrical paramaters
+        self.primary_number_of_turns = 3  # Primary number of turns
+        self.secondary_number_of_turns = 3
+        self.frequency = 200e3
 
-        femm.mi_addblocklabel(Core.A / 2 + (Core.B - Core.C) / 2, PCB.d_core / 2 + Core.D - Core.E)
-        femm.mi_selectlabel(Core.A / 2 + (Core.B - Core.C) / 2, PCB.d_core / 2 + Core.D - Core.E)
-        femm.mi_setblockprop('Air', 1, 0, 0, 0, 99, 0)
+        ## winding stack description
+        self.n_layer = 6
+        self.tlp = np.array([1, 1, 1, 0, 0, 0])  # description of turn of primary in layer stack ex 2T in 2nd layer
+        self.np_HV = 1  # number of turn in parallel for the primary
+        self.tls = np.array([0, 0, 0, 1, 1, 1])
+        self.np_LV = 1  # number of turn in parallel for the sec
 
-    femm.mi_addblocklabel(Core.A * np.cos(np.pi / 3), Core.A * np.sin(np.pi / 3))
-    femm.mi_selectlabel(Core.A * np.cos(np.pi / 3), Core.A * np.sin(np.pi / 3))
-    femm.mi_setblockprop('Air', 1, 0, 0, 0, 99, 0)
+        d_core2pri = 1e-3  # distance core to primary
+        d_core_s = 1e-3  # distance core to secondary
+        cr_winding = 0.3e-3  # creepage between 2 traces
 
-    femm.mi_probdef(f, 'meters', 'planar', 1e-8, Core.F)
-    femm.mi_makeABC(7, 2 * Core.A, Core.A / 2, Core.D / 2, 0)
+        # E/PLT arrangement
+        ww = (E22616.A - E22616.B) / 2  # winding width
+        hw = E22616.E  # winding width
+        wc = E22616.C  # core width
+        hc = E22616.F  # core depth
 
-    femm.mi_saveas(''.join([os.getcwd(), '\\Output\\FEM\\test_short.fem']))
-    femm.mi_createmesh()
+        ## calculation section
+        lw = 2 * hc + 2 * wc + np.pi * ww  # wire mean path lengths
+        lc = hw + ww + np.pi * wc / 2  # mean magnetic path length
 
-    n = []
-    Rac = []
+        # E/E arrangement
+        # lc = 2*hw + 2*ww + np.pi*wc/2 #
 
-    for i in range(len(winding)):
-        n[i] = np.sum(winding[id - 1].n_turn_layer) / winding[id - 1].parallel / np.sum(winding[i].n_turn_layer) * \
-               winding[i].parallel
-        if i == id:
-            if winding[i].half:
-                set_circuit_half(winding[i].name, winding[i].layers, winding[i].n_turn_layer, 1 / winding[i].parallel)
-            else:
-                set_circuit(winding[i].name, winding[i].layers, winding[i].n_turn_layer, 1 / winding[i].parallel)
-        else:
-            if winding[i].half:
-                set_circuit_half(winding[i].name, winding[i].layers, winding[i].n_turn_layer,
-                                 -n[i] / winding[i].parallel)
-            else:
-                set_circuit(winding[i].name, winding[i].layers, winding[i].n_turn_layer, -n[i] / winding[i].parallel)
-
-    femm.mi_analyze(1)
-    femm.femm.mi_loadsolution()
-    for i in range(len(winding)):
-        if i == id:
-            femm.mo_groupselectblock(i)
-            Rac[i] = 2 * np.real(femm.mo_blockintegral(4))
-            femm.mo_clearblock()
-        else:
-            femm.mo_groupselectblock(i)
-            femm.mo_groupselectblock(i + 1)
-            Rac[i] = 2 * np.real(femm.mo_blockintegral(4)) / n[i] ^ 2
-            femm.mo_clearblock()
-
-    femm.mo_groupselectblock(0)
-    femm.mo_groupselectblock(99)
-    L_leak = 4 * np.real(femm.mo_blockintegral(2))
-    femm.mo_clearblock()
-
-    femm.mo_resize(800, 800)
-    femm.mo_zoomnatural()
-    femm.mo_zoomin()
-    femm.mo_savebitmap(''.join([os.getcwd(), '\\img\\test_short.bmp']))
-    femm.mo_savemetafile(''.join([os.getcwd(), '\\img\\test_short.eps']))
-    # reset currents to 0
-    for i in range(len(winding)):
-        if winding[i].half:
-            set_circuit_half(winding[i].name, winding[i].layers, winding[i].n_turn_layer, 0)
-        else:
-            set_circuit(winding[i].name, winding[i].layers, winding[i].n_turn_layer, 0)
-    return [Rac, L_leak]
-
-
-def mi_drawpolyline(p):
-    for k in range(0, len(p) - 1):
-        femm.mi_drawline(p[k, 0], p[k, 1], p[k + 1, 0], p[k + 1, 1])
-
-
-def mi_drawrectangle(x1, y1, x2, y2):
-    femm.mi_drawline(x1, y1, x2, y1)
-    femm.mi_drawline(x2, y1, x2, y2)
-    femm.mi_drawline(x2, y2, x1, y2)
-    femm.mi_drawline(x1, y2, x1, y1)
-
-
-def mi_drawpolygon(p: np.array):
-    mi_drawpolyline(p)
-    n = len(p)
-    femm.mi_drawline(p[0, 0], p[0, 1], p[n - 1, 0], p[n - 1, 1])
-
-
-def drawEwinding_halfT(Core, PCB, winding, material_name):
-    # This funtion draws the half turn planar windings in FEMM
-    femm.mi_getmaterial(material_name)
-
-    id = winding.id
-    layers = winding.layers
-    d_core_leg = winding.d_core_leg
-    nturn_layer = winding.n_turn_layer
-    distance_turn = winding.distance_turn
-    circ = winding.name
-
-    d_core_pcb = PCB.d_core
-    d_layers = np.hstack((0, PCB.d_layers))
-    t_copper = PCB.t_copper
-
-    c = Core
-
-    h = 1
-    for i in np.arange(layers):
-        turn_size = (c.B - c.C - 4 * d_core_leg) / 2
-        for j in np.ceil(nturn_layer[i]):
-            str_pos = str(h) + circ + '+'
-            str_neg = str(h) + circ + '-'
-            str_ext_pos = 'ext' + str(h) + circ + '+'
-            str_ext_neg = str(h) + circ + '-'
-
-            femm.mi_addcircprop(str_pos, 0, 1)
-            femm.mi_addcircprop(str_ext_pos, 0, 1)
-            femm.mi_addcircprop(str_neg, 0, 1)
-            femm.mi_addcircprop(str_ext_neg, 0, 1)
-            if j == 0:
-                x1 = ((c.A - c.B) / 2) + d_core_leg
-            else:
-                x1 = x1 + distance_turn + turn_size
-
-            if layers[i] == 1:
-                y1 = (c.D - c.E) + d_core_pcb
-            else:
-                y1 = (c.D - c.E) + d_core_pcb + np.sum(d_layers[0:layers[i]]) + np.sum(
-                    t_copper[0: layers[i]])  # *(layers[i]-1))
-
-            x2 = x1 + turn_size
-            y2 = y1 + t_copper[layers[i] - 1]  # +t_copper(len(layers))
-
-            femm.mi_drawrectangle(x1, y1, x2, y2)
-            femm.mi_addblocklabel((x2 - x1) / 2 + x1, (y2 - y1) / 2 + y1)
-            femm.mi_selectlabel((x2 - x1) / 2 + x1, (y2 - y1) / 2 + y1)
-            femm.mi_setblockprop(material_name, 0, 0.05, str_pos, 0, id, 0)
-
-            femm.mi_selectrectangle(x1, y1, x2, y2)
-            femm.mi_mirror((c.A - c.B) / 4, 0, (c.A - c.B) / 4, c.D)
-            femm.mi_selectlabel((c.A - c.B) / 4 - ((x2 - x1) / 2 + x1), (y2 - y1) / 2 + y1)
-            femm.mi_setblockprop(material_name, 0, 0.05, str_ext_pos, 0, id, 0)
-
-            femm.mi_selectrectangle(x1, y1, x2, y2)
-            femm.mi_mirror(c.A / 2, 0, c.A / 2, c.D)
-            femm.mi_selectlabel(c.A - ((x2 - x1) / 2 + x1), (y2 - y1) / 2 + y1)
-            femm.mi_setblockprop(material_name, 0, 0.05, str_neg, 0, id, 0)
-
-            femm.mi_selectrectangle((c.A - c.B) / 2 - x1, y1, (c.A - c.B) / 2 - x2, y2)
-            femm.mi_mirror(c.A / 2, 0, c.A / 2, c.D)
-            femm.mi_selectlabel((3 * c.A + c.B) / 4 + ((x2 - x1) / 2 + x1), (y2 - y1) / 2 + y1)
-            femm.mi_setblockprop(material_name, 0, 0.05, str_ext_neg, 0, id, 0)
-
-            h = h + 1
-
-        femm.mi_clearselected()
-
-
-def drawEwinding(Core, PCB, winding, material_name):
-    # This funtion draws the planar windings in FEMM
-    femm.mi_getmaterial(material_name)
-
-    id = winding.id
-    layers = winding.layers
-    d_core_leg = winding.d_core_leg
-    nturn_layer = winding.n_turn_layer
-    distance_turn = winding.distance_turn
-    circ = winding.name
-
-    d_core_pcb = PCB.d_core
-    d_layers = np.hstack((0, PCB.d_layers))
-    t_copper = PCB.t_copper
-
-    c = Core
-
-    h = 1
-    for i in range(len(layers)):
-        turn_size = (c.B - c.C - 4 * d_core_leg - 2 * (np.ceil(nturn_layer[i]) - 1) * distance_turn) / 2 / \
-                    nturn_layer[i]
-        # Distance between each turn
-        for j in range(int(np.ceil(nturn_layer[i]))):
-            str_pos = str(h) + circ + '+'
-            str_neg = str(h) + circ + '-'
-
-            femm.mi_addcircprop(str_pos, 0, 1)
-            femm.mi_addcircprop(str_neg, 0, 1)
-
-            if j == 0:
-                x1 = ((c.A - c.B) / 2) + d_core_leg
-            else:
-                x1 = x1 + distance_turn + turn_size
-
-            if layers[i] == 0:
-                y1 = (c.D - c.E) + d_core_pcb
-            else:
-                y1 = (c.D - c.E) + d_core_pcb + np.sum(d_layers[1:layers[i]]) + np.sum(
-                    t_copper[1: layers[i]])  # *(layers[i]-1))
-
-                x2 = x1 + turn_size * (1 - 0.5 * (j > nturn_layer[i]))
-                y2 = y1 + t_copper[layers[i] - 1]  # +t_copper(len(layers))
-                femm.mi_drawrectangle(x1, y1, x2, y2)
-                femm.mi_addblocklabel((x2 - x1) / 2 + x1, (y2 - y1) / 2 + y1)
-                femm.mi_selectlabel((x2 - x1) / 2 + x1, (y2 - y1) / 2 + y1)
-                femm.mi_setblockprop(material_name, 0, 0.05, str_pos, 0, id, 0)
-                femm.mi_selectgroup(id)
-                femm.mi_mirror(c.A / 2, 0, c.A / 2, c.D)
-                femm.mi_selectlabel(c.A - ((x2 - x1) / 2 + x1), (y2 - y1) / 2 + y1)
-                femm.mi_setblockprop(material_name, 0, 0.05, str_neg, 0, id, 0)
-                femm.mi_selectrectangle(x1, y1, x2, y2)
-                femm.mi_mirror(c.A / 2, 0, c.A / 2, c.D)
-                h = h + 1
-
-
-def getCoordEIcore(Core):
-    # Outputs vectors [x,y] of the coordinate points that define the cores as polygons
-    # [x_E] = E core
-    # [x_I] = I core
-
-    c = Core
-
-    # E-core
-    xy_E = [[0, 0],
-            [0, c.D],
-            [(c.A - c.B) / 2, c.D],
-            [(c.A - c.B) / 2, (c.D - c.E)],
-            [(c.A - c.C) / 2, (c.D - c.E)],
-            [(c.A - c.C) / 2, c.D],
-            [(c.A + c.C) / 2, c.D],
-            [(c.A + c.C) / 2, (c.D - c.E)],
-            [(c.A + c.C) / 2, (c.D - c.E)],
-            [(c.A + c.B) / 2, (c.D - c.E)],
-            [(c.A + c.B) / 2, (c.D)],
-            [c.A, c.D],
-            [c.A, 0]]
-    x_E = xy_E[:, 1]
-    y_E = xy_E[:, 2]
-
-    # Icore
-    xy_I = [[0, (c.D + c.g)],
-            [0, (c.D + c.g + c.It)],
-            [(c.A), (c.D + c.g + c.It)],
-            [(c.A), (c.D + c.g)]]
-
-    x_I = xy_I[:, 1]
-    y_I = xy_I[:, 2]
-
-    return [x_E, y_E, x_I, y_I]
+        # winding resistance
+        tw_p = (ww - cr_winding * (np.ceil(tlp) - 1) - 2 * d_core2pri) / tlp  # trace width in each primary layer
+        # the same for secondary winding resistance
+        w_mean_s = (ww - cr_winding * (np.ceil(tls) - 1) - 2 * d_core_s) / tls
+        # prim winding resistance
+        Rwp = np.sum(
+            tlp * lw / tw_p / myPCBwinding.copper_stack / sigmaCu_20) / np_HV ** 2  # np.sum each turn resistance
+        Rws = np.sum(tls * lw / w_mean_s / myPCBwinding.copper_stack / sigmaCu_20) / np_LV ** 2
+        # the sec resistance reflected to primary
+        Rws2p = n_HV ** 2 / np_LV ** 2 * Rws
+        Rt = Rwp + Rws2p
 
 
 def test_trafo_E22_6_16():
     ## constant definition
-    sigmaCu_20 = 6e7  # copper conductivity at 20�C
-    mu0 = 4 * np.pi * 1e-7
 
-    ## electrical paramaters
-    n_HV = 3  # Primary number of turns
-    n_LV = 3
-    fs = 200e3
-
-    ## winding stack description
-    n_layer = 6
-
-    hcu = np.array([105e-6, 105e-6, 105e-6, 105e-6, 105e-6, 105e-6])  # copper layer thickness
-    # total copper foil thickness of all layers
-    tlp = np.array([1, 1, 1, 0, 0, 0])  # description of turn of primary in layer stack ex 2T in 2nd layer
-    np_HV = 1  # number of turn in parallel for the primary
-    tls = np.array([0, 0, 0, 1, 1, 1])
-    np_LV = 1  # number of turn in parallel for the sec
-
-    d_core_p = 1e-3  # distance core to primary
-    d_core_s = 1e-3  # distance core to secondary
-    cr_winding = 0.3e-3  # creepage between 2 traces
+    ## FEM init
+    # open a new femm document
+    trafo_FEM = FEMM()
+    trafo_FEM.open()
+    trafo_FEM.new_magnetic_planar_problem()
+    trafo_FEM.set_frequency(frequency=0.0)
 
     ## core description
     # core dimensions as defined in PlanarFEMM_diagram.png
     # for E22/6/16 in E/PLT arrangement
     # https://www.ferroxcube.com/en-global/download/download/11
     # Dimension defined as in PlanarFEMM_diagram.png (NOTE THAT planarFEMM TAKES DIMENSIONS IN MM)
-    E22616 = EcoreGeometry(A=21.8e-3, B=16.8e-3, C=5e-3, D=5.7e-3, E=3.2e-3, F=15.8e-3)
-    PLT22616 = Icore(A=21.8e-3, F=15.8e-3, t=2.5e-3)
     E22616_material = Ferroxcube_3C95()
+    E22616 = Ecore(name='E22616', A=21.8e-3, B=16.8e-3, C=5e-3, D=5.7e-3, E=3.2e-3, F=15.8e-3, ferrite=E22616_material)
+    PLT22616 = Icore(name='PLT22616', A=21.8e-3, F=15.8e-3, It=2.5e-3, ferrite=E22616_material)
+    myPCBwinding = PCBwinding(hcu=np.array([105e-6, 105e-6, 105e-6, 105e-6, 105e-6, 105e-6]))  # copper layer thickness
 
-    myPCB = PCB(hcu=hcu)
-    myPrimary = Primary()
-    mySecondary = Secondary()
+    # myPrimary = Primary()
+    # mySecondary = Secondary()
 
-    # E/PLT arrangement
-    ww = (E22616.A - E22616.B) / 2  # winding width
-    hw = E22616.E  # winding width
-    wc = E22616.C  # core width
-    hc = E22616.F  # core depth
+    femm.mi_makeABC(7, 2 * E22616.geometry['A'], E22616.geometry['A'] / 2, E22616.geometry['D'] / 2, 0)
 
-    ## calculation section
-    lw = 2 * hc + 2 * wc + np.pi * ww  # wire mean path lengths
-    lc = hw + ww + np.pi * wc / 2  # mean magnetic path length
+    [fem_E22616, fem_PLT22616] = createEIcoreWith3Gaps(ecore=E22616, plt_core=PLT22616, gap=0)
+    trafo_FEM.draw_block(block=fem_E22616)
+    trafo_FEM.draw_block(block=fem_PLT22616)
 
-    # E/E arrangement
-    # lc = 2*hw + 2*ww + np.pi*wc/2 #
-
-    # primary winding resistance
-    tw_p = (ww - cr_winding * (np.ceil(tlp) - 1) - 2 * d_core_p) / tlp  # trace width in each primary layer
-    Rwp = np.sum(tlp * lw / tw_p / hcu / sigmaCu_20) / np_HV ** 2  # np.sum each turn resistance
-    # the same for secondary winding resistance
-    w_mean_s = (ww - cr_winding * (np.ceil(tls) - 1) - 2 * d_core_s) / tls
-    # the sec resistance reflected to primary
-    Rws = np.sum(tls * lw / w_mean_s / hcu / sigmaCu_20) / np_LV ** 2
-    Rws2p = n_HV ** 2 / np_LV ** 2 * Rws
-    Rt = Rwp + Rws2p
-
-    # open a new femm document
-    femm.openfemm()
-    femm.newdocument(0)
-    femm.mi_probdef(0, 'meters', 'planar', 1e-8, E22616.F)
-    femm.mi_makeABC(7, 2 * E22616.A, E22616.A / 2, E22616.D / 2, 0)
-    gap = 0  # distributed gap length in mm
-
-    drawEIcoreGapEachLeg(core=E22616, t=PLT22616.t, material=E22616_material, gap=gap)
+    # drawEIcoreGapEachLeg(core=E22616, t=PLT22616.t, material=E22616_material, gap=gap)
     # drawEIcoreGapMidLeg(E22616, PLT22616.t, E22616_material, gap)
     # drawEEcoreGapEachLeg(core=E22616,  t=PLT22616.t, material=E22616_material, gap=gap)
     # drawEEcoreGapMidLeg(E22616, E22616, E22616_material, gap)
 
-    drawEwinding(E22616, myPCB, myPrimary, 'Copper')
-    drawEwinding(E22616, myPCB, mySecondary, 'Copper')
-    time.sleep(2)
+    # drawEwinding(E22616, myPCBwinding, myPrimary, 'Copper')
+    # drawEwinding(E22616, myPCBwinding, mySecondary, 'Copper')
+    # time.sleep(2)
+    #
+    # Rdc_p, L_self_p = test_open(E22616, [myPrimary, mySecondary], myPrimary.id, myPCBwinding, gap)
+    # Rdc_s, L_self_s = test_open(E22616, [myPrimary, mySecondary], myPrimary.id, myPCBwinding, gap)
+    #
+    # print('Rdc_p= %e' % Rdc_p)
+    # print('Rdc_s= %e' % Rdc_s)
+    #
+    # print('L_self_p= %e' % L_self_p)
+    # print('L_self_s= %e' % L_self_p)
+    #
+    # Rac, L_leak = test_short(E22616, [myPrimary, mySecondary], myPrimary.id, fs, myPCBwinding, gap)
+    # ratioRacRdc = (Rac[0] + Rac[1] * n_HV ** 2) / (Rdc_p + n_HV ** 2 * Rdc_s)
+    # L_leak_mm = L_leak / E22616.F
+    #
+    # L_leak = L_leak_mm * lw
+    # k = np.sqrt(1 - L_leak / L_self_p)
 
-    Rdc_p, L_self_p = test_open(E22616, [myPrimary, mySecondary], myPrimary.id, myPCB, gap)
-    Rdc_s, L_self_s = test_open(E22616, [myPrimary, mySecondary], myPrimary.id, myPCB, gap)
-
-    print('Rdc_p= %e' % Rdc_p)
-    print('Rdc_s= %e' % Rdc_s)
-
-    print('L_self_p= %e' % L_self_p)
-    print('L_self_s= %e' % L_self_p)
-
-    Rac, L_leak = test_short(E22616, [myPrimary, mySecondary], myPrimary.id, fs, myPCB, gap)
-    ratioRacRdc = (Rac[0] + Rac[1] * n_HV ** 2) / (Rdc_p + n_HV ** 2 * Rdc_s)
-    L_leak_mm = L_leak / E22616.F
-
-    L_leak = L_leak_mm * lw
-    k = np.sqrt(1 - L_leak / L_self_p)
-
-    # test_saturation(E22616, [myPrimary, mySecondary], myPrimary.id, myPCB, Im/np.sqrt(2), gap)
+    # test_saturation(E22616, [myPrimary, mySecondary], myPrimary.id, myPCBwinding, Im/np.sqrt(2), gap)
+    pass
 
 
 if __name__ == "__main__":
-    trafo_FEM = FEMM()
-    trafo_FEM.open()
-    trafo_FEM.new_magnetic_planar_problem()
-    trafo_FEM.set_frequency(frequency=0.0)
     test_trafo_E22_6_16()
